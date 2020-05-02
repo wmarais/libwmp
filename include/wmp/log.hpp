@@ -1,3 +1,9 @@
+/*******************************************************************************
+ * @file        log.hpp
+ * @author      Wynand Marais
+ * @copyright   MIT License
+ ******************************************************************************/
+
 #pragma once
 
 #include <memory>
@@ -13,6 +19,12 @@
 #include <condition_variable>
 #include <array>
 
+#include "config.hpp"
+
+/*******************************************************************************
+ * Creates a message object with all the relevant debug information contained
+ * in the log messages, i.e. file name, function name, line number, etc.
+ ******************************************************************************/
 #define WMP_LOG_MSG(lvl, msg) \
   wmp::log_t::write(wmp::log_t::msg_t(lvl, \
     std::chrono::high_resolution_clock::now().time_since_epoch().count(), \
@@ -22,44 +34,91 @@
 
 /*******************************************************************************
  * Write a TRACE message to the log. This is not to be used directly, use the
- * WMP_TRACE_FUNC() macro to trance the entry and exit of a function.
+ * WMP_TRACE_FUNC() macro to trance the entry and exit of a function. Function
+ * traces are almost always overkill and should be avoided. It generally
+ * generates far to much information.
+ *
+ * <b>Example</b>
+ * @code
+ * WMP_TRACE_FUNC("Entering Function #" << 1 << ", then #" << 2);
+ * @endcode
+ *
+ * @param[in] msg The message to be printer to the log. Multiple objects and
+ *                values can be concatenated togerther using the stream
+ *                insertion operator (<<) assuming the user has implemented
+ *                the the overloaded operator for their type.
  ******************************************************************************/
 #define WMP_LOG_TRACE(msg) \
   WMP_LOG_MSG(wmp::log_t::levels_t::trace, msg)
 
 /*******************************************************************************
  * Write a DEBUG message to the log. Generally debug message will be compiled
- * out for release versions of the library to aid performance.
+ * out for release versions of the library to aid performance. Debug messages
+ * are things that an expert user or developer will find useful when debugging
+ * issues in the software.
  ******************************************************************************/
 #define WMP_LOG_DEBUG(msg) \
   WMP_LOG_MSG(wmp::log_t::levels_t::debug, msg)
 
 /*******************************************************************************
- * Write a INFO message to the log.
+ * Write an INFO message to the log. Information messages are things that a
+ * normal user will find helpful when configuring and tuning the system or
+ * software.
  ******************************************************************************/
 #define WMP_LOG_INFO(msg) \
   WMP_LOG_MSG(wmp::log_t::levels_t::info, msg)
 
+/*******************************************************************************
+ * Write a NOTIFY message to the log. Notifications are things that a normal
+ * user will find important to know under normal circumstances.
+ ******************************************************************************/
 #define WMP_LOG_NOTIFY(msg) \
   WMP_LOG_MSG(wmp::log_t::levels_t::notify, msg)
 
+/*******************************************************************************
+ * Write a warning message to the log. Warning messages are things that a
+ * normal user need to know about, though can be safely ignored in most cases.
+ ******************************************************************************/
 #define WMP_LOG_WARN(msg) \
   WMP_LOG_MSG(wmp::log_t::levels_t::warn, msg)
 
+/*******************************************************************************
+ * Write an ERROR mesasge to the log. Error messages are things that a normal
+ * user should definitely know about because it will affect their experience
+ * though it will not lead to a safety or security issue.
+ ******************************************************************************/
 #define WMP_LOG_ERROR(msg) \
   WMP_LOG_MSG(wmp::log_t::levels_t::error, msg)
 
+/*******************************************************************************
+ * Write a FATAL message to the log. Fatal messages are things that anormal
+ * user must know about and will likely lead to a safety or security issue. The
+ * application must be shut down for protection.
+ ******************************************************************************/
 #define WMP_LOG_FATAL(msg) \
   WMP_LOG_MSG(wmp::log_t::levels_t::fatal, msg)
 
+/*******************************************************************************
+ * Write an EXCEPT message to the log. Exceptions are things that are outside
+ * the error handling methods of the software and the application must shutdown
+ * for safety and security reasons.
+ ******************************************************************************/
 #define WMP_LOG_EXCEPTION(msg) \
-  WMP_LOG_MSG(wmp::log_t::levels_t::exception, msg)
-
-#define WMP_MAX_LOG_QUEUE_LEN     10000
-
+  WMP_LOG_MSG(wmp::log_t::levels_t::excep, msg)
 
 namespace wmp
 {
+  /*****************************************************************************
+   * General purpose thread safe log class that cache and write log message
+   * in a seperate thread. It is able to print messages to std::cout, std::cerr,
+   * std::clog, syslog() and any accessible file.
+   *
+   * The user can / should use the the helper macros #WMP_LOG_DEBUG(msg),
+   * #WMP_LOG_INFO(msg), #WMP_LOG_NOTIFY(msg), #WMP_LOG_WARN(msg),
+   * #WMP_LOG_ERROR(msg), #WMP_LOG_FATAL(msg) and #WMP_LOG_EXCEPTION(msg),
+   * instead of building up their own message types. It's not a requirement
+   * to user the logger, but it's a waste of your time to make your own.
+   ****************************************************************************/
   class log_t final
   {
   public:
@@ -102,7 +161,7 @@ namespace wmp
        * hardware faults such as being out of memory or harddrive space. Though
        * when these things happens, its a bit of a gamble whether it still
        * works or not. */
-      exception,
+      excep
     };
 
     class msg_t final
@@ -129,7 +188,7 @@ namespace wmp
       std::stringstream ss_v;
 
     public:
-      msg_t(levels_t lvl = levels_t::exception,
+      msg_t(levels_t lvl = levels_t::excep,
             std::uint64_t time_stamp = 0,
             std::thread::id thread_id = std::thread::id(),
             const char * file = "",
@@ -205,7 +264,7 @@ namespace wmp
 
     /** The list of output streams for each message type. */
     std::array<std::vector<std::ostream*>,
-      static_cast<std::size_t>(levels_t::exception) + 1> os_v;
+      static_cast<std::size_t>(levels_t::excep) + 1> os_v;
 
     /** Delete the copy constructor to force signelton pattern. */
     log_t(const log_t &) = delete;
@@ -381,10 +440,9 @@ namespace wmp
      * configured to accept the particular message level / priority, then it
      * will not show up in syslog. The syslog priorities map to log levels as:
      *
-     *  +---------------------+-------------+
-     *  | log_t::levels_t     | syslog      |
+     *  | log levels          | syslog      |
      *  | --------------------|-------------|
-     *  | levels_t::exception | LOG_EMERG   |
+     *  | levels_t::except    | LOG_EMERG   |
      *  | levels_t::fatal     | LOG_CRIT    |
      *  | levels_t::error     | LOG_ERR     |
      *  | levels_t::warn      | LOG_WARNING |
@@ -392,7 +450,6 @@ namespace wmp
      *  | levels_t::info      | LOG_INFO    |
      *  | levels_t::debug     | LOG_DEBUG   |
      *  | levels_t::trace     | LOG_DEBUG   |
-     *  +---------------------+-------------+
      **************************************************************************/
     static void enable_syslog();
 
@@ -409,11 +466,37 @@ namespace wmp
      **************************************************************************/
     static void app_name(const std::string & name);
 
+    /***************************************************************************
+     * Write a message to the log streams. The log message contains all the
+     * information about the log message, i.e. file name, function name, line
+     * number, when it occured, which thread it was in, etc.
+     *
+     * @param[in] msg The mesasge to be written to the log.
+     **************************************************************************/
     static void write(msg_t & msg)
     {
       log_t::ref().queue_msg(msg);
     }
   };
 
+  /*****************************************************************************
+   * Overload the global stream insertion operator for to print log levels to
+   * output streams. The respective string representations are:
+   *
+   *  | log levels          | String  |
+   *  | --------------------|---------|
+   *  | levels_t::except    | EXCEP   |
+   *  | levels_t::fatal     | FATAL   |
+   *  | levels_t::error     | ERROR   |
+   *  | levels_t::warn      | WARN    |
+   *  | levels_t::notify    | NOTIF   |
+   *  | levels_t::info      | INFO    |
+   *  | levels_t::debug     | DEBUG   |
+   *  | levels_t::trace     | DEBUG   |
+   *
+   * @param[in, out]  os  The output stream where the level must be written too.
+   * @param[in]       lvl The level that must written out a string.
+   * @return          The ostream object that the level string was inserted into.
+   ****************************************************************************/
   std::ostream & operator << (std::ostream & os, const log_t::levels_t & lvl);
 }

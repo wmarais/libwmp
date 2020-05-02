@@ -21,19 +21,21 @@ namespace wmp
       case log_t::levels_t::trace     : return os << "TRACE";
       case log_t::levels_t::debug     : return os << "DEBUG";
       case log_t::levels_t::info      : return os << "INFO ";
-      case log_t::levels_t::notify    : return os << "NOTIFY";
+      case log_t::levels_t::notify    : return os << "NOTIF";
       case log_t::levels_t::warn      : return os << "WARN ";
       case log_t::levels_t::error     : return os << "ERROR";
       case log_t::levels_t::fatal     : return os << "FATAL";
-      case log_t::levels_t::exception : return os << "EXCEP";
+      case log_t::levels_t::excep     : return os << "EXCEP";
     }
+
+    return os << "????";
   }
 }
 
 /******************************************************************************/
 log_t::log_t(): level_v(static_cast<std::int_fast8_t>(log_t::levels_t::notify)),
   executing_v(true), write_exception_v(nullptr), head_v(0), tail_v(0),
-  max_count_c(WMP_MAX_LOG_QUEUE_LEN), count_v(0), messages_v(nullptr),
+  max_count_c(WMP_CONF_MAX_LOG_QUEUE_LEN), count_v(0), messages_v(nullptr),
   thread_v(nullptr), syslog_state_v(log_t::syslog_states_t::closed)
 {
   /* Set a default name in case the user does not specify something. */
@@ -198,7 +200,7 @@ bool log_t::write_log_entry()
     int priority = LOG_DEBUG;
     switch(msg.level())
     {
-      case levels_t::exception : priority = LOG_EMERG; break;
+      case levels_t::excep : priority = LOG_EMERG; break;
       case levels_t::fatal : priority = LOG_CRIT; break;
       case levels_t::error : priority = LOG_ERR; break;
       case levels_t::warn : priority = LOG_WARNING; break;

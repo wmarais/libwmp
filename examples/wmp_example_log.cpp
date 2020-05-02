@@ -44,7 +44,7 @@ int main(int argc, char * argv[])
                       log_t::levels_t::warn,
                       log_t::levels_t::error,
                       log_t::levels_t::fatal,
-                      log_t::levels_t::exception
+                      log_t::levels_t::excep
                     });
 
   /* Write all messages to clog. */

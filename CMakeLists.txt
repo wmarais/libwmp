@@ -2,8 +2,16 @@ cmake_minimum_required(VERSION 3.10)
 
 project(wmp)
 
-set(${CMAKE_PROJECT_NAME}_VERSION_MAJOR 0)
-set(${CMAKE_PROJECT_NAME}_VERSION_MINOR 1)
+set(WMP_VERSION_MAJOR 0)
+set(WMP_VERSION_MINOR 1)
+
+configure_file(config.hpp.in "${CMAKE_BINARY_DIR}/config.hpp" @ONLY)
+include_directories(${CMAKE_CURRENT_BINARY_DIR})
+
+set(WMP_CONF_MAX_LOG_QUEUE_LEN 10000 CACHE STRING
+  "The maximum number of log messages that can be cached before
+  log_t::write() starts to block.")
+
 
 set(WMP_LOG_HEADERS
   include/wmp/log.hpp
@@ -35,3 +43,9 @@ add_subdirectory(examples)
 #add_executable(test main.cpp)
 #target_link_libraries(test ${CMAKE_PROJECT_NAME})
 
+find_package(Doxygen REQUIRED)
+if(DOXYGEN_FOUND)
+  set(DOXYGEN_OUTPUT_DIRECTORY doxygen)
+  set(DOXYGEN_JAVADOC_BANNER YES)
+  doxygen_add_docs(doxygen "${CMAKE_SOURCE_DIR}/include" ALL)
+endif()

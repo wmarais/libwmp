@@ -1,0 +1,3 @@
+#pragma once
+
+#define WMP_CONF_MAX_LOG_QUEUE_LEN    @WMP_CONF_MAX_LOG_QUEUE_LEN@
