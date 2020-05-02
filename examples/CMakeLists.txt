@@ -1,0 +1,3 @@
+
+add_executable(wmp_example_log wmp_example_log.cpp)
+target_link_libraries(wmp_example_log wmplog)
