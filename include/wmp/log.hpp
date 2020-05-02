@@ -9,11 +9,16 @@
 #include <sstream>
 #include <iostream>
 #include <vector>
+#include <map>
 #include <condition_variable>
+#include <array>
 
 #define WMP_LOG_MSG(lvl, msg) \
-  wmp::log_t::write(wmp::log_t::msg_t(lvl, __FILE__, __FUNCTION__, __LINE__) \
-    << msg)
+  wmp::log_t::write(wmp::log_t::msg_t(lvl, \
+    std::chrono::high_resolution_clock::now().time_since_epoch().count(), \
+    std::this_thread::get_id(), \
+    __FILE__, __FUNCTION__, __LINE__) \
+    << msg << "\n")
 
 /*******************************************************************************
  * Write a TRACE message to the log. This is not to be used directly, use the
@@ -105,6 +110,12 @@ namespace wmp
       /** The log level being recorded. */
       levels_t lvl_v;
 
+      /** The moment the log entry was created. */
+      std::uint64_t time_stamp_v;
+
+      /** The thread that generated the log message. */
+      std::thread::id thread_id_v;
+
       /** The file name in which the log message was generated. */
       std::string file_name_v;
 
@@ -119,6 +130,8 @@ namespace wmp
 
     public:
       msg_t(levels_t lvl = levels_t::exception,
+            std::uint64_t time_stamp = 0,
+            std::thread::id thread_id = std::thread::id(),
             const char * file = "",
             const char * func = "",
             std::size_t line = 0);
@@ -127,6 +140,31 @@ namespace wmp
       {
         ss_v << val;
         return * this;
+      }
+
+      std::uint64_t time() const
+      {
+        return time_stamp_v;
+      }
+
+      std::thread::id thread_id() const
+      {
+        return thread_id_v;
+      }
+
+      const std::string & file_name() const
+      {
+        return file_name_v;
+      }
+
+      const std::string & func_name() const
+      {
+        return func_name_v;
+      }
+
+      std::size_t line_num() const
+      {
+        return line_num_v;
       }
 
       inline std::string text() const
@@ -141,6 +179,33 @@ namespace wmp
     };
 
   private:
+
+    /** All the possible states that syslog can be in. */
+    enum class syslog_states_t
+    {
+      /** Syslog must be disabled. */
+      disable,
+
+      /** Syslog must be enabled. */
+      enable,
+
+      /** Thename of the application change. Syslog must close and reopen. */
+      app_name_changed,
+
+      /** Syslog is open and can can write log messages. */
+      open,
+
+      /** Syslog is closed and can not write log messages. */
+      closed
+    };
+
+    /** The list of file streams that must be destroyed clsoed when the object
+     * is destroyed. */
+    std::map<std::string, std::unique_ptr<std::ofstream>> ofs_v;
+
+    /** The list of output streams for each message type. */
+    std::array<std::vector<std::ostream*>,
+      static_cast<std::size_t>(levels_t::exception) + 1> os_v;
 
     /** Delete the copy constructor to force signelton pattern. */
     log_t(const log_t &) = delete;
@@ -195,6 +260,8 @@ namespace wmp
     /** The thread used for writting message to the output. */
     std::unique_ptr<std::thread> thread_v;
 
+    syslog_states_t syslog_state_v;
+
     log_t();
     ~log_t();
 
@@ -210,11 +277,25 @@ namespace wmp
 
     bool write_log_entry();
 
+    void write_log_entry(levels_t lvl, const std::string & header,
+                         const std::string & body,
+                         const std::vector<std::ostream*> & os);
+
     /***************************************************************************
      *
      *
      **************************************************************************/
     void queue_msg(msg_t & msg);
+
+    /***************************************************************************
+     * This function requires that the calling function lock the write mutex
+     * otherwise the thread operation will not be thread ssafe.
+     **************************************************************************/
+    void add_output_unsafe(std::ostream * os,
+                           std::initializer_list<log_t::levels_t> lvls);
+
+    void remove_output_unsafe(std::ostream * os,
+                              std::initializer_list<log_t::levels_t> lvls);
 
 
   public:
@@ -263,6 +344,65 @@ namespace wmp
       /* Retrieve the minimum message level to log. */
       return static_cast<levels_t>(log_t::ref().level_v.load());
     }
+
+    static void add_output(std::ostream * os,
+                           std::initializer_list<log_t::levels_t>  lvl = {});
+
+    static void remove_output(std::ostream * os,
+                              std::initializer_list<log_t::levels_t> lvls = {});
+
+    /***************************************************************************
+     * Log messages of the specified levels to the file. If lvls is empty, then
+     * all messages will be logged to the specified file. Log messages can
+     * either be appended to the log file, or the log file can be truncated /
+     * cleared first before writting the new messages. This behaviour is
+     * specified by append, and by default the log files are truncated (false)
+     * to prevent excessive log growth.
+     *
+     * @param[in] path    The path of the log file.
+     * @param[in] lvls    The levels of the log messages to be written to this
+     *                    file. If empty ({}), then all log messages will be
+     *                    written to this file.
+     * @param[in] append  Indicate whether log messages should be appended to
+     *                    the end of the file (true) or whether the file should
+     *                    truncated (false) before writting new messages.
+     * @return            True if the file was opened and added as an output
+     *                    stream else false.
+     **************************************************************************/
+    static bool add_output(const std::string & path,
+                           std::initializer_list<levels_t> lvls = {},
+                           bool append = false);
+
+    static bool remove_output(const std::string & path,
+                              std::initializer_list<levels_t> lvls = {});
+
+    /***************************************************************************
+     * Allow message to be written to syslog. Note that if syslog has not been
+     * configured to accept the particular message level / priority, then it
+     * will not show up in syslog. The syslog priorities map to log levels as:
+     *
+     *  +---------------------+-------------+
+     *  | log_t::levels_t     | syslog      |
+     *  | --------------------|-------------|
+     *  | levels_t::exception | LOG_EMERG   |
+     *  | levels_t::fatal     | LOG_CRIT    |
+     *  | levels_t::error     | LOG_ERR     |
+     *  | levels_t::warn      | LOG_WARNING |
+     *  | levels_t::notify    | LOG_NOTICE  |
+     *  | levels_t::info      | LOG_INFO    |
+     *  | levels_t::debug     | LOG_DEBUG   |
+     *  | levels_t::trace     | LOG_DEBUG   |
+     *  +---------------------+-------------+
+     **************************************************************************/
+    static void enable_syslog();
+
+    /***************************************************************************
+     * Stop sending messages to syslog. By default syslog is disabled, so it is
+     * not necisary to call this upon startup if syslog is not used. Syslog is
+     * also automatically closed when the log_t object is destroyed, so this
+     * does not have to be called either before a shutdown.
+     **************************************************************************/
+    static void disable_syslog();
 
     /***************************************************************************
      * Set the name of the application be logged.

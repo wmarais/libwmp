@@ -1,6 +1,13 @@
 #include "../../include/wmp/log.hpp"
 #include <chrono>
 #include <filesystem>
+#include <fstream>
+
+#define WMP_CONF_HAS_SYSLOG 1
+
+#ifdef WMP_CONF_HAS_SYSLOG
+#include <syslog.h>
+#endif /* WMP_CONF_HAS_SYSLOG */
 
 using namespace wmp;
 
@@ -13,12 +20,12 @@ namespace wmp
     {
       case log_t::levels_t::trace     : return os << "TRACE";
       case log_t::levels_t::debug     : return os << "DEBUG";
-      case log_t::levels_t::info      : return os << "INFO";
+      case log_t::levels_t::info      : return os << "INFO ";
       case log_t::levels_t::notify    : return os << "NOTIFY";
-      case log_t::levels_t::warn      : return os << "WARN";
+      case log_t::levels_t::warn      : return os << "WARN ";
       case log_t::levels_t::error     : return os << "ERROR";
       case log_t::levels_t::fatal     : return os << "FATAL";
-      case log_t::levels_t::exception : return os << "EXCEPTION";
+      case log_t::levels_t::exception : return os << "EXCEP";
     }
   }
 }
@@ -27,7 +34,7 @@ namespace wmp
 log_t::log_t(): level_v(static_cast<std::int_fast8_t>(log_t::levels_t::notify)),
   executing_v(true), write_exception_v(nullptr), head_v(0), tail_v(0),
   max_count_c(WMP_MAX_LOG_QUEUE_LEN), count_v(0), messages_v(nullptr),
-  thread_v(nullptr)
+  thread_v(nullptr), syslog_state_v(log_t::syslog_states_t::closed)
 {
   /* Set a default name in case the user does not specify something. */
   app_name_v = "WMP LOG";
@@ -117,6 +124,14 @@ void log_t::write_thread()
 
     /* Flush the remaining messages to the log. */
     while(write_log_entry());
+
+#ifdef WMP_CONF_HAS_SYSLOG
+
+    /* Close down syslog if it was enabled. */
+    if(syslog_state_v == syslog_states_t::open)
+      closelog();
+
+#endif /* WMP_CONF_HAS_SYSLOG */
   }
   catch (...)
   {
@@ -138,25 +153,84 @@ bool log_t::write_log_entry()
   if(count_v == 0)
     return false;
 
-  /* The string stream to build the message. */
+  /* Get a reference to the message to be written. */
+  msg_t & msg = messages_v[tail_v];
 
+#ifdef WMP_CONF_HAS_SYSLOG
+
+  /* Check if the log name changed. */
+  if(syslog_state_v == syslog_states_t::app_name_changed)
+  {
+    /* Close the log and re-open it. */
+    closelog();
+
+    /* Reopen syslog with the new name. */
+    syslog_state_v = syslog_states_t::enable;
+  }
+
+  /* Check if syslog must be enabled. */
+  if(syslog_state_v == syslog_states_t::enable)
+  {
+    /* Enable all the log fields that maps to the supported log types. */
+    setlogmask(LOG_EMERG | LOG_CRIT | LOG_ERR | LOG_WARNING | LOG_NOTICE |
+               LOG_INFO | LOG_DEBUG);
+
+    /* Open the log. Note that if the name changes, this need to reopen. */
+    openlog(app_name_v.c_str(), LOG_NDELAY | LOG_PID, LOG_USER);
+
+    /* Mark syslog as open. */
+    syslog_state_v = syslog_states_t::open;
+  }
+  /* Check if syslog must be closed. */
+  else if(syslog_state_v == syslog_states_t::disable)
+  {
+    /* Close syslog. */
+    closelog();
+
+    /* Mark syslog as closed. */
+    syslog_state_v == syslog_states_t::closed;
+  }
+
+  /* If syslog is open, then write the log message. */
+  if(syslog_state_v == syslog_states_t::open)
+  {
+    /* Select the best matching priority / level to write too. */
+    int priority = LOG_DEBUG;
+    switch(msg.level())
+    {
+      case levels_t::exception : priority = LOG_EMERG; break;
+      case levels_t::fatal : priority = LOG_CRIT; break;
+      case levels_t::error : priority = LOG_ERR; break;
+      case levels_t::warn : priority = LOG_WARNING; break;
+      case levels_t::notify : priority = LOG_NOTICE; break;
+      case levels_t::info : priority = LOG_INFO; break;
+    }
+
+    /* Write the message. */
+    syslog(priority, "%s", msg.text().c_str());
+  }
+
+#endif /* WMP_CONF_HAS_SYSLOG */
+
+  /* The string stream to build the message. */
+  std::stringstream ss;
+  ss << app_name_v << " | "
+     << messages_v[tail_v].level() << " | "
+     << std::this_thread::get_id() << " | "
+     << msg.time() << " | "
+     << std::filesystem::path(msg.file_name()).filename().string() << " | "
+     << msg.func_name() << " | "
+     << msg.line_num() << " | "
+     << messages_v[tail_v].text();
 
   /* Write the message to all the output streams. */
-  if(messages_v[tail_v].level() < levels_t::warn)
+  for(auto os : os_v[static_cast<std::int_fast8_t>(msg.level())])
   {
-    /* Write the normal output stream of the terminal. */
-    std::cout << app_name_v << " | "
-              << messages_v[tail_v].level() << " | "
-              << messages_v[tail_v].text();
-    std::cout.flush();
-  }
-  else
-  {
-    /* Write to the error output stream. */
-    std::cerr << messages_v[tail_v].text();
+    (*os) << ss.str();
+    os->flush();
   }
 
-  /* Decrement the log entry. */
+  /* Dequeue the log entry. */
   --count_v;
   ++tail_v;
   if(tail_v >= max_count_c)
@@ -167,20 +241,204 @@ bool log_t::write_log_entry()
 }
 
 /******************************************************************************/
+void log_t::write_log_entry(levels_t lvl,
+    const std::string & header,
+                            const std::string & body,
+                            const std::vector<std::ostream*> & os)
+{
+
+}
+
+/******************************************************************************/
 void log_t::app_name(const std::string & name)
 {
   /* Lock access to the name field. */
   std::scoped_lock<std::mutex> l(log_t::ref().mutex_v);
 
-  //std::filesystem::path(name).filename().string()
-
   /* Set the application name. */
   log_t::ref().app_name_v = name;
+
+  /* Tell syslog to reopen with the new name. */
+  log_t::ref().syslog_state_v = syslog_states_t::app_name_changed;
 }
 
 /******************************************************************************/
-log_t::msg_t::msg_t(levels_t lvl, const char * file, const char * func,
-  std::size_t line) : lvl_v(lvl), file_name_v(file), func_name_v(func),
+void log_t::add_output_unsafe(std::ostream * os,
+                              std::initializer_list<log_t::levels_t> lvls)
+{
+  /* If no levels were specified, then output all message levels to this
+   * stream. */
+  if(lvls.size() == 0)
+  {
+    for(auto & vec : log_t::ref().os_v)
+    {
+      /* Make sure it is not allready included in the list of output streams. */
+      if(std::find(vec.begin(), vec.end(), os) == vec.end())
+      {
+        vec.push_back(os);
+      }
+    }
+  }
+
+  /* Else, add it to just the specified streams. */
+  for(auto lvl : lvls)
+  {
+    auto & vec = log_t::ref().os_v[static_cast<std::int_fast8_t>(lvl)];
+
+    if(std::find(vec.begin(), vec.end(), os) == vec.end())
+    {
+      vec.push_back(os);
+    }
+  }
+}
+
+/******************************************************************************/
+void log_t::remove_output_unsafe(std::ostream * os,
+                                 std::initializer_list<log_t::levels_t> lvls)
+{
+  /* If no levels were specified, then remove it from all output levels.*/
+  if(lvls.size() == 0)
+  {
+    for(auto & vec : log_t::ref().os_v)
+    {
+      /* Find the item in the current lof level's output streams. */
+      auto iter = std::find(vec.begin(), vec.end(), os);
+
+      /* Make sure it is not allready included in the list of output streams. */
+      if(iter != vec.end())
+      {
+        vec.erase(iter);
+      }
+    }
+  }
+
+  /* Else, add it to just the specified streams. */
+  for(auto lvl : lvls)
+  {
+    auto & vec = log_t::ref().os_v[static_cast<std::int_fast8_t>(lvl)];
+
+    /* Find the item in the current lof level's output streams. */
+    auto iter = std::find(vec.begin(), vec.end(), os);
+
+    if(iter != vec.end())
+    {
+      vec.erase(iter);
+    }
+  }
+}
+
+/******************************************************************************/
+void log_t::add_output(std::ostream * os,
+                       std::initializer_list<log_t::levels_t> lvls)
+{
+  /* Check if any exceptions were thrown in the output thread. */
+  log_t::ref().check_exceptions();
+
+  /* Lock access to the name field. */
+  std::scoped_lock<std::mutex> l(log_t::ref().mutex_v);
+
+  /* Add it as an output stream. */
+  log_t::ref().add_output_unsafe(os, lvls);
+}
+
+/******************************************************************************/
+bool log_t::add_output(const std::string & path,
+                       std::initializer_list<log_t::levels_t> lvls,
+                       bool append)
+{
+  /* Check if any exceptions were thrown in the output thread. */
+  log_t::ref().check_exceptions();
+
+  /* Lock access to the name field. */
+  std::scoped_lock<std::mutex> l(log_t::ref().mutex_v);
+
+  /* Check if the file is allready open. */
+  if(log_t::ref().ofs_v.find(path) == log_t::ref().ofs_v.end())
+  {
+    /* Open the file for writing. */
+     std::unique_ptr<std::ofstream> file =
+         std::make_unique<std::ofstream>(path, append ? std::ios_base::app :
+                                                        std::ios_base::trunc);
+
+     /* Make sure it was opened. */
+     if(!file->is_open())
+       return false;
+
+    /* Store it so it can be properly closed. */
+    log_t::ref().ofs_v[path] = std::move(file);
+  }
+
+  /* Add it as an output stream. */
+  log_t::ref().add_output_unsafe(log_t::ref().ofs_v[path].get(), lvls);
+
+  /* Return true to indicate it all went well. */
+  return true;
+}
+
+/******************************************************************************/
+void log_t::remove_output(std::ostream * os,
+                          std::initializer_list<levels_t> lvls)
+{
+  /* Check if any exceptions were thrown in the output thread. */
+  log_t::ref().check_exceptions();
+
+  /* Lock access to the name field. */
+  std::scoped_lock<std::mutex> l(log_t::ref().mutex_v);
+
+  /* Remove the output. */
+  log_t::ref().remove_output_unsafe(os, lvls);
+}
+
+/******************************************************************************/
+bool log_t::remove_output(const std::string & path,
+                          std::initializer_list<levels_t> lvls)
+{
+  /* Check if any exceptions were thrown in the output thread. */
+  log_t::ref().check_exceptions();
+
+  /* Lock access to the name field. */
+  std::scoped_lock<std::mutex> l(log_t::ref().mutex_v);
+
+  /* Find the log file to close. */
+  if(log_t::ref().ofs_v.find(path) != log_t::ref().ofs_v.end())
+  {
+    /* Remove the output stream. */
+    log_t::ref().remove_output_unsafe(log_t::ref().ofs_v[path].get(), lvls);
+    log_t::ref().ofs_v.erase(log_t::ref().ofs_v.find(path));
+
+    /* Return true to indicate that the file has been removed. */
+    return true;
+  }
+
+  /* Return false to indicate that the file was not found in the log. */
+  return false;
+}
+
+/******************************************************************************/
+void log_t::enable_syslog()
+{
+  /* Lock access to the name field. */
+  std::scoped_lock<std::mutex> l(log_t::ref().mutex_v);
+
+  /* Enable syslog. */
+  log_t::ref().syslog_state_v = syslog_states_t::enable;
+}
+
+/******************************************************************************/
+void log_t::disable_syslog()
+{
+  /* Lock access to the name field. */
+  std::scoped_lock<std::mutex> l(log_t::ref().mutex_v);
+
+  /* Disable syslog. */
+  log_t::ref().syslog_state_v = syslog_states_t::disable;
+}
+
+/******************************************************************************/
+log_t::msg_t::msg_t(levels_t lvl,  std::uint64_t time_stamp,
+  std::thread::id thread_id, const char * file, const char * func,
+  std::size_t line) : lvl_v(lvl), time_stamp_v(time_stamp),
+  thread_id_v(thread_id), file_name_v(file), func_name_v(func),
   line_num_v(line) {}
 
 
