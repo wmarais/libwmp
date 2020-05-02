@@ -344,7 +344,7 @@ namespace wmp
      *
      *
      **************************************************************************/
-    void queue_msg(msg_t & msg);
+    void enqueue(msg_t & msg);
 
     /***************************************************************************
      * This function requires that the calling function lock the write mutex
@@ -432,7 +432,14 @@ namespace wmp
                            std::initializer_list<levels_t> lvls = {},
                            bool append = false);
 
-    static bool remove_output(const std::string & path,
+    /***************************************************************************
+     * Remove the log file as a destination for the specified levels. If the
+     * list of lvls are empty ({}), then it is removed from all levels.
+     *
+     * @param[in] path  The path of the log file to be removed.
+     * @param[in] lvls  The levels which will no longer be written to the file.
+     **************************************************************************/
+    static void remove_output(const std::string & path,
                               std::initializer_list<levels_t> lvls = {});
 
     /***************************************************************************
@@ -473,10 +480,7 @@ namespace wmp
      *
      * @param[in] msg The mesasge to be written to the log.
      **************************************************************************/
-    static void write(msg_t & msg)
-    {
-      log_t::ref().queue_msg(msg);
-    }
+    static void write(msg_t & msg);
   };
 
   /*****************************************************************************
@@ -496,7 +500,8 @@ namespace wmp
    *
    * @param[in, out]  os  The output stream where the level must be written too.
    * @param[in]       lvl The level that must written out a string.
-   * @return          The ostream object that the level string was inserted into.
+   * @return          The ostream object that the level string was inserted
+   *                  into.
    ****************************************************************************/
   std::ostream & operator << (std::ostream & os, const log_t::levels_t & lvl);
 }

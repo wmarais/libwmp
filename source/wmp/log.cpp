@@ -60,7 +60,7 @@ log_t::~log_t()
 }
 
 /******************************************************************************/
-void log_t::queue_msg(msg_t & msg)
+void log_t::enqueue(msg_t & msg)
 {
   /* Check if any exceptions were thrown in the output thread. */
   check_exceptions();
@@ -72,6 +72,9 @@ void log_t::queue_msg(msg_t & msg)
   /* Try to push the message into the queue. */
   while(executing_v)
   {
+    /* Check if any exceptions were thrown in the output thread. */
+    check_exceptions();
+
     {
       /* Lock access to queue. */
       std::scoped_lock<std::mutex> l(mutex_v);
@@ -392,7 +395,7 @@ void log_t::remove_output(std::ostream * os,
 }
 
 /******************************************************************************/
-bool log_t::remove_output(const std::string & path,
+void log_t::remove_output(const std::string & path,
                           std::initializer_list<levels_t> lvls)
 {
   /* Check if any exceptions were thrown in the output thread. */
@@ -407,18 +410,15 @@ bool log_t::remove_output(const std::string & path,
     /* Remove the output stream. */
     log_t::ref().remove_output_unsafe(log_t::ref().ofs_v[path].get(), lvls);
     log_t::ref().ofs_v.erase(log_t::ref().ofs_v.find(path));
-
-    /* Return true to indicate that the file has been removed. */
-    return true;
   }
-
-  /* Return false to indicate that the file was not found in the log. */
-  return false;
 }
 
 /******************************************************************************/
 void log_t::enable_syslog()
 {
+  /* Check if any exceptions were thrown in the output thread. */
+  log_t::ref().check_exceptions();
+
   /* Lock access to the name field. */
   std::scoped_lock<std::mutex> l(log_t::ref().mutex_v);
 
@@ -429,6 +429,9 @@ void log_t::enable_syslog()
 /******************************************************************************/
 void log_t::disable_syslog()
 {
+  /* Check if any exceptions were thrown in the output thread. */
+  log_t::ref().check_exceptions();
+
   /* Lock access to the name field. */
   std::scoped_lock<std::mutex> l(log_t::ref().mutex_v);
 
@@ -437,15 +440,16 @@ void log_t::disable_syslog()
 }
 
 /******************************************************************************/
+void log_t::write(msg_t & msg)
+{
+  /* Enqueue the message into to write queue. All locking and checks are
+   * performed in the enqueue function. */
+  log_t::ref().enqueue(msg);
+}
+
+/******************************************************************************/
 log_t::msg_t::msg_t(levels_t lvl,  std::uint64_t time_stamp,
   std::thread::id thread_id, const char * file, const char * func,
   std::size_t line) : lvl_v(lvl), time_stamp_v(time_stamp),
   thread_id_v(thread_id), file_name_v(file), func_name_v(func),
   line_num_v(line) {}
-
-
-
-
-
-
-
