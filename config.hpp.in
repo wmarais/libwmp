@@ -1,3 +1,7 @@
 #pragma once
 
+#cmakedefine WMP_CONF_HAS_SYSLOG
+
+#cmakedefine WMP_CONF_LOG_DEBUG_MSG_EN
+
 #define WMP_CONF_MAX_LOG_QUEUE_LEN    @WMP_CONF_MAX_LOG_QUEUE_LEN@

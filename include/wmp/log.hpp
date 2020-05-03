@@ -7,17 +7,7 @@
 #pragma once
 
 #include <memory>
-#include <atomic>
-#include <algorithm>
-#include <mutex>
-#include <thread>
-#include <string>
 #include <sstream>
-#include <iostream>
-#include <vector>
-#include <map>
-#include <condition_variable>
-#include <array>
 
 #include "config.hpp"
 
@@ -120,7 +110,10 @@ namespace wmp
   {
   public:
 
-    enum class levels_t : std::int_fast8_t
+    /***************************************************************************
+     * the list of log levels
+     **************************************************************************/
+    enum class levels_t : int
     {
       /** The entry and exists of function calls are traced. */
       trace   = 0,
@@ -161,6 +154,9 @@ namespace wmp
       excep
     };
 
+    /***************************************************************************
+     *
+     **************************************************************************/
     class msg_t final
     {
       /** The string stream object used to build the log message. */
@@ -199,136 +195,11 @@ namespace wmp
       std::string text() const;
     };
 
-  private:
-
-    /** All the possible states that syslog can be in. */
-    enum class syslog_states_t
-    {
-      /** Syslog must be disabled. */
-      disable,
-
-      /** Syslog must be enabled. */
-      enable,
-
-      /** Thename of the application change. Syslog must close and reopen. */
-      app_name_changed,
-
-      /** Syslog is open and can can write log messages. */
-      open,
-
-      /** Syslog is closed and can not write log messages. */
-      closed
-    };
-
-    /** The list of file streams that must be destroyed clsoed when the object
-     * is destroyed. */
-    std::map<std::string, std::unique_ptr<std::ofstream>> ofs_v;
-
-    /** The list of output streams for each message type. */
-    std::array<std::vector<std::ostream*>,
-      static_cast<std::size_t>(levels_t::excep) + 1> os_v;
-
-    /** Delete the copy constructor to force signelton pattern. */
-    log_t(const log_t &) = delete;
-
-    /** Delete the move constructor to force singleton pattern */
-    log_t(const log_t &&) = delete;
-
-    /** Delete the copy assignment to force singleton pattern. */
-    log_t & operator = (const log_t &) = delete;
-
-    /** Delete the move assignment to force singleton pattern. */
-    log_t & operator = (const log_t &&) = delete;
-
-    /** The name of the application being logged. */
-    std::string app_name_v;
-
-    /** Track the minimum log message level to record. */
-    std::atomic_int_fast8_t level_v;
-
-    /** Track whether the write thread is still running or not. */
-    std::atomic_bool executing_v;
-
-    /** The pointer to any exception the was raised in the write thread. */
-    std::exception_ptr write_exception_v;
-
-    /** The mutex that is used for controlling access to the message queue. */
-    std::mutex mutex_v;
-
-    /** The lock object to use for make the write thread wait for new queue
-     * contents rather than sitting in a spin lock. */
-    std::mutex queue_empty_mtx_v;
-
-    /** The conditional variable to block / wake up the write thread when the
-     * message queue is empty / new data is entered respectively. */
-    std::condition_variable queue_empty_v;
-
-    /** The head pointer of the queue. */
-    std::size_t head_v;
-
-    /** The tail pointer of the queue. */
-    std::size_t tail_v;
-
-    /** The maximum number of messages in the queue. */
-    const std::size_t max_count_c;
-
-    /** The number of messages in the queue. */
-    std::size_t count_v;
-
-    /** The messages stored in the queue. */
-    std::unique_ptr<msg_t[]> messages_v;
-
-    /** The thread used for writting message to the output. */
-    std::unique_ptr<std::thread> thread_v;
-
-    syslog_states_t syslog_state_v;
-
-    log_t();
-    ~log_t();
-
-    static log_t & ref()
-    {
-      static log_t instance_v;
-
-      /* Return the static instance of the log. */
-      return instance_v;
-    }
-
-    void write_thread();
-
-    bool write_log_entry();
-    /***************************************************************************
-     *
-     *
-     **************************************************************************/
-    void enqueue(msg_t & msg);
-
-    /***************************************************************************
-     * This function requires that the calling function lock the write mutex
-     * otherwise the thread operation will not be thread ssafe.
-     **************************************************************************/
-    void add_output_unsafe(std::ostream * os,
-                           std::initializer_list<log_t::levels_t> lvls);
-
-    void remove_output_unsafe(std::ostream * os,
-                              std::initializer_list<log_t::levels_t> lvls);
-
-
-  public:
-
-
-
     /***************************************************************************
      * Rethrow any exceptions that were thrown in the write thread.
      *
      **************************************************************************/
-    void check_exceptions() const
-    {
-      /* If execution has finished, then the the write thread has likely
-       * prematurely died. */
-      if(!executing_v && write_exception_v)
-        std::rethrow_exception(write_exception_v);
-    }
+    void check_exceptions() const;
 
     /***************************************************************************
      * Set the minimum level (inclusive) of message to be logged. To set only
@@ -340,30 +211,22 @@ namespace wmp
      *
      * @param[in] lvl The minimum log level of messages to be logged.
      **************************************************************************/
-    static void min_level(levels_t lvl)
-    {
-      /* Check if any exceptions were thrown in the output thread. */
-      log_t::ref().check_exceptions();
-
-      /* Set the minimum message level to record. */
-      log_t::ref().level_v = static_cast<std::int_fast8_t>(lvl);
-    }
+    static void min_level(levels_t lvl);
 
     /***************************************************************************
      * Get the minimum level (inclusive) of message to be logged.
      **************************************************************************/
-    static levels_t min_level()
-    {
-      /* Check if any exceptions were thrown in the output thread. */
-      log_t::ref().check_exceptions();
+    static levels_t min_level();
 
-      /* Retrieve the minimum message level to log. */
-      return static_cast<levels_t>(log_t::ref().level_v.load());
-    }
-
+    /***************************************************************************
+     *
+     **************************************************************************/
     static void add_output(std::ostream * os,
                            std::initializer_list<log_t::levels_t>  lvl = {});
 
+    /***************************************************************************
+     *
+     **************************************************************************/
     static void remove_output(std::ostream * os,
                               std::initializer_list<log_t::levels_t> lvls = {});
 
@@ -438,6 +301,39 @@ namespace wmp
      * @param[in] msg The mesasge to be written to the log.
      **************************************************************************/
     static void write(msg_t & msg);
+
+  private:
+    struct data_t;
+
+    std::unique_ptr<data_t> data_v;
+
+    /* Delete the copy and move constructor and assingment operators to enforce
+     * singleton pattern. */
+    log_t(const log_t &) = delete;
+    log_t(const log_t &&) = delete;
+    log_t & operator = (const log_t &) = delete;
+    log_t & operator = (const log_t &&) = delete;
+
+    /***************************************************************************
+     * Make the default constructor private so the log object can not be
+     * instantiated by users.
+     **************************************************************************/
+    log_t();
+
+    /***************************************************************************
+     * Make the default constructor private so the user can not delete the log
+     * object. The destructor also ensure that the write thread is shut down
+     * properly.
+     **************************************************************************/
+    ~log_t();
+
+    /***************************************************************************
+     * Return the singleton instance of the log object. If the instance does not
+     * exist, it is created.
+     *
+     * @return  The reference to the singleton instance of the log.
+     **************************************************************************/
+    static log_t & ref();
   };
 
   /*****************************************************************************

@@ -3,6 +3,8 @@
  *
  ******************************************************************************/
 #include "../include/wmp/log.hpp"
+
+#include <iostream>
 #include <filesystem>
 
 using namespace wmp;
