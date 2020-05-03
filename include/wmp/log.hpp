@@ -26,10 +26,7 @@
  * in the log messages, i.e. file name, function name, line number, etc.
  ******************************************************************************/
 #define WMP_LOG_MSG(lvl, msg) \
-  wmp::log_t::write(wmp::log_t::msg_t(lvl, \
-    std::chrono::high_resolution_clock::now().time_since_epoch().count(), \
-    std::this_thread::get_id(), \
-    __FILE__, __FUNCTION__, __LINE__) \
+  wmp::log_t::write(wmp::log_t::msg_t(lvl, __FILE__, __FUNCTION__, __LINE__) \
     << msg << "\n")
 
 /*******************************************************************************
@@ -166,75 +163,40 @@ namespace wmp
 
     class msg_t final
     {
-      /** The log level being recorded. */
-      levels_t lvl_v;
-
-      /** The moment the log entry was created. */
-      std::uint64_t time_stamp_v;
-
-      /** The thread that generated the log message. */
-      std::thread::id thread_id_v;
-
-      /** The file name in which the log message was generated. */
-      std::string file_name_v;
-
-      /** The function name in which the log message was generated. */
-      std::string func_name_v;
-
-      /** The line number onwhich the log message was generated. */
-      std::size_t line_num_v;
-
       /** The string stream object used to build the log message. */
       std::stringstream ss_v;
 
+      /** The message level. */
+      levels_t level_v;
+
     public:
       msg_t(levels_t lvl = levels_t::excep,
-            std::uint64_t time_stamp = 0,
-            std::thread::id thread_id = std::thread::id(),
             const char * file = "",
             const char * func = "",
-            std::size_t line = 0);
+            unsigned long long line = 0);
 
+      /* Force the user of move semantics. The compiler for some reason tries to
+       * copy regardiness of std::move(), and this clears it up. It may have
+       * something to do with the incomplete deffinition of data_t. */
+      msg_t(const msg_t &) = delete;
+      msg_t & operator = (const msg_t &) = delete;
+      msg_t(msg_t &&) = default;
+      msg_t & operator = (msg_t &&) = default;
+
+      /** Apppend the text represnetation of objects to the end of the message
+       * granted that the stream insertion operator has been implemented for
+       * the objects. */
       template <typename t> msg_t & operator << (const t & val)
       {
         ss_v << val;
         return * this;
       }
 
-      std::uint64_t time() const
-      {
-        return time_stamp_v;
-      }
+      /** Return the severity level of the current message. */
+      levels_t level() const;
 
-      std::thread::id thread_id() const
-      {
-        return thread_id_v;
-      }
-
-      const std::string & file_name() const
-      {
-        return file_name_v;
-      }
-
-      const std::string & func_name() const
-      {
-        return func_name_v;
-      }
-
-      std::size_t line_num() const
-      {
-        return line_num_v;
-      }
-
-      inline std::string text() const
-      {
-        return ss_v.str();
-      }
-
-      inline levels_t level() const
-      {
-        return  lvl_v;
-      }
+      /** Return the pointer to the data message data. */
+      std::string text() const;
     };
 
   private:
@@ -335,11 +297,6 @@ namespace wmp
     void write_thread();
 
     bool write_log_entry();
-
-    void write_log_entry(levels_t lvl, const std::string & header,
-                         const std::string & body,
-                         const std::vector<std::ostream*> & os);
-
     /***************************************************************************
      *
      *

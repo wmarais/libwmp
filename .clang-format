@@ -1,0 +1,10 @@
+﻿---
+BasedOnStyle: Microsoft
+ColumnLimit: '80'
+CompactNamespaces: 'false'
+ContinuationIndentWidth: '2'
+IndentWidth: '2'
+NamespaceIndentation: All
+ObjCBlockIndentWidth: '2'
+
+...

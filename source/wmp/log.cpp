@@ -217,21 +217,10 @@ bool log_t::write_log_entry()
 
 #endif /* WMP_CONF_HAS_SYSLOG */
 
-  /* The string stream to build the message. */
-  std::stringstream ss;
-  ss << app_name_v << " | "
-     << messages_v[tail_v].level() << " | "
-     << std::this_thread::get_id() << " | "
-     << msg.time() << " | "
-     << std::filesystem::path(msg.file_name()).filename().string() << " | "
-     << msg.func_name() << " | "
-     << msg.line_num() << " | "
-     << messages_v[tail_v].text();
-
   /* Write the message to all the output streams. */
   for(auto os : os_v[static_cast<std::int_fast8_t>(msg.level())])
   {
-    (*os) << ss.str();
+    (*os) << msg.text();
     os->flush();
   }
 
@@ -243,15 +232,6 @@ bool log_t::write_log_entry()
 
   /* Check if there is anything left to write. */
   return count_v == 0;
-}
-
-/******************************************************************************/
-void log_t::write_log_entry(levels_t lvl,
-    const std::string & header,
-                            const std::string & body,
-                            const std::vector<std::ostream*> & os)
-{
-
 }
 
 /******************************************************************************/
@@ -448,8 +428,36 @@ void log_t::write(msg_t & msg)
 }
 
 /******************************************************************************/
-log_t::msg_t::msg_t(levels_t lvl,  std::uint64_t time_stamp,
-  std::thread::id thread_id, const char * file, const char * func,
-  std::size_t line) : lvl_v(lvl), time_stamp_v(time_stamp),
-  thread_id_v(thread_id), file_name_v(file), func_name_v(func),
-  line_num_v(line) {}
+log_t::msg_t::msg_t(levels_t lvl, const char * file_name,
+  const char * func_name, unsigned long long line_num) : level_v(lvl)
+{
+  /* Get the id of the calling threads. */
+  auto thread_id = std::this_thread::get_id();
+
+  /* Get the current time. */
+  auto time_stamp =
+      std::chrono::high_resolution_clock::now().time_since_epoch().count();
+
+  /* Strip the path out of the file name. */
+  auto short_file_name = std::filesystem::path(file_name).filename().string();
+
+  /* Build the log message header. */
+  ss_v << lvl             << " | "
+       << thread_id       << " | "
+       << time_stamp      << " | "
+       << short_file_name << " | "
+       << func_name       << " | "
+       << line_num        << " | ";
+}
+
+/******************************************************************************/
+log_t::levels_t log_t::msg_t::level() const
+{
+  return level_v;
+}
+
+/******************************************************************************/
+std::string log_t::msg_t::text() const
+{
+  return ss_v.str();
+}
