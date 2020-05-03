@@ -35,8 +35,12 @@
  *                insertion operator (<<) assuming the user has implemented
  *                the the overloaded operator for their type.
  ******************************************************************************/
-#define WMP_LOG_TRACE(msg) \
-  WMP_LOG_MSG(wmp::log_t::levels_t::trace, msg)
+#ifdef WMP_CONF_LOG_DEBUG_MSG_EN
+  #define WMP_LOG_TRACE(msg) \
+    WMP_LOG_MSG(wmp::log_t::levels_t::trace, msg)
+#else
+  #define WMP_LOG_TRACE(msg)
+#endif /* WMP_CONF_LOG_DEBUG_MSG_EN */
 
 /*******************************************************************************
  * Write a DEBUG message to the log. Generally debug message will be compiled
@@ -44,8 +48,12 @@
  * are things that an expert user or developer will find useful when debugging
  * issues in the software.
  ******************************************************************************/
-#define WMP_LOG_DEBUG(msg) \
-  WMP_LOG_MSG(wmp::log_t::levels_t::debug, msg)
+#ifdef WMP_CONF_LOG_DEBUG_MSG_EN
+  #define WMP_LOG_DEBUG(msg) \
+    WMP_LOG_MSG(wmp::log_t::levels_t::debug, msg)
+#else
+  #define WMP_LOG_DEBUG(msg)
+#endif /* WMP_CONF_LOG_DEBUG_MSG_EN */
 
 /*******************************************************************************
  * Write an INFO message to the log. Information messages are things that a
